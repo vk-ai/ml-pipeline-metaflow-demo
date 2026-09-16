@@ -25,7 +25,7 @@ This repo is that slice.
 | `src/ml_pipeline_metaflow_demo/dataset.py` | Tiny Iris binary split (offline, deterministic) |
 | `examples/quickstart.py` | End-to-end run + prints model card |
 | `tests/` | Happy path + fail-on-bad-metrics + DAG unit tests |
-| `ci/github-actions.yml` | CI mirror (copied to `.github/workflows/ci.yml`) |
+| `ci/github-actions.yml` | GitHub Actions workflow mirror (copy to `.github/workflows/ci.yml` to enable) |
 
 ## Pipeline shape
 
