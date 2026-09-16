@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ml-pipeline-metaflow-demo"
+version = "0.1.0"
+description = "OSS learning: Metaflow/Airflow-style ML DAG train→validate→register stub. Not employer production."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "vk-ai" }]
+keywords = ["metaflow", "airflow", "ml-pipeline", "sklearn", "dag", "mlops"]
+dependencies = [
+  "scikit-learn>=1.3",
+  "joblib>=1.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.urls]
+Homepage = "https://github.com/vk-ai/ml-pipeline-metaflow-demo"
+Issues = "https://github.com/vk-ai/ml-pipeline-metaflow-demo/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ml_pipeline_metaflow_demo"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src/ml_pipeline_metaflow_demo" = "ml_pipeline_metaflow_demo"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
