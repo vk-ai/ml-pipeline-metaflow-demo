@@ -20,7 +20,7 @@ This repo is that slice.
 | Piece | Role |
 |---|---|
 | `src/ml_pipeline_metaflow_demo/dag.py` | Thin DAG: `add_step` / `connect` / `run` (topo order) |
-| `src/ml_pipeline_metaflow_demo/steps.py` | `train` → `validate` → `register` |
+| `src/ml_pipeline_metaflow_demo/steps.py` | `train` → `validate` → `register` (+ immutable run folder / lineage) |
 | `src/ml_pipeline_metaflow_demo/pipeline.py` | Wires the three-step ML DAG |
 | `src/ml_pipeline_metaflow_demo/dataset.py` | Tiny Iris binary split (offline, deterministic) |
 | `examples/quickstart.py` | End-to-end run + prints model card |
@@ -62,7 +62,7 @@ metrics: { "accuracy": 1.0, "f1": 1.0, "threshold": 0.85 }
 
 - **Thin custom DAG, not Airflow/Metaflow runtime.** Airflow needs a scheduler/DB; Metaflow is great but heavier to install cleanly for a learning repo. The runner here is ~100 lines with the same mental model (named steps + edges + shared context).
 - **Validate is a hard gate.** If accuracy &lt; threshold (or tests force bad metrics), `ValidationError` stops the DAG before register writes artifacts.
-- **Register is a stub.** Writes `artifacts/model.joblib` and `artifacts/registry.json` (model card). Not MLflow / SageMaker Model Registry.
+- **Register is a stub with run lineage.** Writes `artifacts/model.joblib`, `artifacts/registry.json` (model card with `run_id` + `lineage.steps`), and an **immutable** `artifacts/runs/<run_id>/` folder (`context.json`, model copy, registry copy). Teaching stand-in for Metaflow/MLflow lineage — **not** Metaflow Client API, **not** MLflow Model Registry, **not** Airflow.
 - **Deterministic & offline.** Iris from sklearn; no network, no cloud credentials.
 
 ## Tests
@@ -72,6 +72,7 @@ pytest -q
 ```
 
 - **Happy path** — full DAG runs; registry JSON + model artifact exist; accuracy ≥ threshold.
+- **Run lineage** — `artifacts/runs/<run_id>/context.json` + registry `run_id` / `lineage.steps`.
 - **Fail on bad metrics** — forced inverted predictions (or impossible threshold) raise `ValidationError` and leave no registry files.
 - **DAG unit tests** — topo order, cycle detection, graph text.
 
