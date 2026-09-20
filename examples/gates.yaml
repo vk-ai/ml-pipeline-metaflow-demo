@@ -1,0 +1,6 @@
+# Multi-metric quality gates (OSS learning stub — not MLflow MetricThreshold).
+# Pass via: run_pipeline(gates_path="examples/gates.yaml", ...)
+# or: run_pipeline(gates={"accuracy": 0.90, "f1": 0.85}, ...)
+gates:
+  accuracy: 0.90
+  f1: 0.85

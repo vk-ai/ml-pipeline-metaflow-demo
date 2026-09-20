@@ -20,10 +20,11 @@ This repo is that slice.
 | Piece | Role |
 |---|---|
 | `src/ml_pipeline_metaflow_demo/dag.py` | Thin DAG: `add_step` / `connect` / `run` (topo order) |
-| `src/ml_pipeline_metaflow_demo/steps.py` | `train` → `validate` → `register` (+ immutable run folder / lineage) |
+| `src/ml_pipeline_metaflow_demo/steps.py` | `train` → `validate` → `register` (+ lineage + multi-metric `gates.json`) |
 | `src/ml_pipeline_metaflow_demo/pipeline.py` | Wires the three-step ML DAG |
 | `src/ml_pipeline_metaflow_demo/dataset.py` | Tiny Iris binary split (offline, deterministic) |
 | `examples/quickstart.py` | End-to-end run + prints model card |
+| `examples/gates.yaml` | Pluggable multi-metric quality gates (`accuracy` / `f1` / …) |
 | `tests/` | Happy path + fail-on-bad-metrics + DAG unit tests |
 | `ci/github-actions.yml` | GitHub Actions workflow mirror (copy to `.github/workflows/ci.yml` to enable) |
 
@@ -34,8 +35,10 @@ This repo is that slice.
    │ train │ ──▶ │ validate │ ──▶ │ register │
    └───────┘     └──────────┘     └──────────┘
         │              │                 │
-   fit logreg    accuracy ≥ τ      model.joblib
-   on Iris       else raise        + registry.json
+   fit logreg    multi-metric      model.joblib
+   on Iris       gates (YAML)      + registry.json
+                 else GateFailed   + runs/<id>/gates.json
+                                   promotion: candidate
 ```
 
 ## Quickstart
@@ -61,8 +64,8 @@ metrics: { "accuracy": 1.0, "f1": 1.0, "threshold": 0.85 }
 ## Design notes
 
 - **Thin custom DAG, not Airflow/Metaflow runtime.** Airflow needs a scheduler/DB; Metaflow is great but heavier to install cleanly for a learning repo. The runner here is ~100 lines with the same mental model (named steps + edges + shared context).
-- **Validate is a hard gate.** If accuracy &lt; threshold (or tests force bad metrics), `ValidationError` stops the DAG before register writes artifacts.
-- **Register is a stub with run lineage.** Writes `artifacts/model.joblib`, `artifacts/registry.json` (model card with `run_id` + `lineage.steps`), and an **immutable** `artifacts/runs/<run_id>/` folder (`context.json`, model copy, registry copy). Teaching stand-in for Metaflow/MLflow lineage — **not** Metaflow Client API, **not** MLflow Model Registry, **not** Airflow.
+- **Validate is a hard multi-metric gate.** Pass `gates={accuracy: 0.90, f1: 0.85}` or `gates_path=examples/gates.yaml`. Any miss raises `GateFailed` (subclass of `ValidationError`) and skips register. Legacy `accuracy_threshold` still maps to a single accuracy gate. Teaching stand-in for MLflow `MetricThreshold` / `validate_evaluation_results` — **not** MLflow.
+- **Register is a stub with run lineage + gates.json.** Writes `artifacts/model.joblib`, `artifacts/registry.json` (model card with `run_id`, `lineage.steps`, **`promotion: "candidate"`**), and an **immutable** `artifacts/runs/<run_id>/` folder (`context.json`, `gates.json`, model copy, registry copy). Teaching stand-in for Metaflow/MLflow lineage — **not** Metaflow Client API, **not** MLflow Model Registry, **not** Airflow.
 - **Deterministic & offline.** Iris from sklearn; no network, no cloud credentials.
 
 ## Tests
@@ -72,8 +75,9 @@ pytest -q
 ```
 
 - **Happy path** — full DAG runs; registry JSON + model artifact exist; accuracy ≥ threshold.
-- **Run lineage** — `artifacts/runs/<run_id>/context.json` + registry `run_id` / `lineage.steps`.
-- **Fail on bad metrics** — forced inverted predictions (or impossible threshold) raise `ValidationError` and leave no registry files.
+- **Multi-metric gates** — pass-all writes `gates.json` + `promotion: candidate`; fail-one raises `GateFailed` with no artifacts.
+- **Run lineage** — `artifacts/runs/<run_id>/context.json` + `gates.json` + registry `run_id` / `lineage.steps`.
+- **Fail on bad metrics** — forced inverted predictions (or impossible threshold) raise `ValidationError`/`GateFailed` and leave no registry files.
 - **DAG unit tests** — topo order, cycle detection, graph text.
 
 ## License
