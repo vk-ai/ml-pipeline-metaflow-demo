@@ -103,3 +103,65 @@ def test_metric_gate_skips_run_folder(tmp_path: Path):
         )
     assert not (tmp_path / "runs" / "should-not-exist").exists()
     assert not (tmp_path / "registry.json").exists()
+
+
+def test_multi_metric_gates_pass_writes_gates_json(tmp_path: Path):
+    out = run_pipeline(
+        artifact_dir=str(tmp_path),
+        gates={"accuracy": 0.85, "f1": 0.80},
+        model_name="demo-iris",
+        model_version="0.2.0",
+        run_id="gatespass01",
+    )
+    assert out["_history"] == ["train", "validate", "register"]
+    gates_path = tmp_path / "runs" / "gatespass01" / "gates.json"
+    assert gates_path.is_file()
+    gate_doc = json.loads(gates_path.read_text(encoding="utf-8"))
+    assert gate_doc["passed"] is True
+    assert gate_doc["status"] == "passed"
+    assert "accuracy" in gate_doc["gates"]
+    assert "f1" in gate_doc["gates"]
+    assert all(r["passed"] for r in gate_doc["results"])
+
+    card = json.loads(Path(out["registry_path"]).read_text(encoding="utf-8"))
+    assert card["promotion"] == "candidate"
+    assert card["gates"]["accuracy"] == 0.85
+    assert card["lineage"]["gates"] == str(gates_path)
+    # Lineage run folder still present
+    assert (tmp_path / "runs" / "gatespass01" / "context.json").is_file()
+
+
+def test_multi_metric_gates_fail_one(tmp_path: Path):
+    """Fail-one: impossible f1 gate blocks register (no artifacts / no gates.json)."""
+    with pytest.raises((ValidationError, Exception), match="f1|quality gates"):
+        run_pipeline(
+            artifact_dir=str(tmp_path),
+            gates={"accuracy": 0.50, "f1": 1.01},  # f1 impossible
+            run_id="gatesfail01",
+        )
+    assert not (tmp_path / "runs" / "gatesfail01").exists()
+    assert not (tmp_path / "registry.json").exists()
+
+
+def test_gates_yaml_file(tmp_path: Path):
+    yaml_path = tmp_path / "gates.yaml"
+    yaml_path.write_text("gates:\n  accuracy: 0.85\n  f1: 0.80\n", encoding="utf-8")
+    out = run_pipeline(
+        artifact_dir=str(tmp_path / "art"),
+        gates_path=str(yaml_path),
+        run_id="gatesyaml01",
+    )
+    assert out["gates"]["accuracy"] == 0.85
+    assert out["gates"]["f1"] == 0.80
+    assert (tmp_path / "art" / "runs" / "gatesyaml01" / "gates.json").is_file()
+
+
+def test_legacy_accuracy_threshold_still_works(tmp_path: Path):
+    out = run_pipeline(
+        artifact_dir=str(tmp_path),
+        accuracy_threshold=0.85,
+        run_id="legacy01",
+    )
+    assert out["gates"] == {"accuracy": 0.85}
+    card = json.loads(Path(out["registry_path"]).read_text(encoding="utf-8"))
+    assert card["promotion"] == "candidate"
