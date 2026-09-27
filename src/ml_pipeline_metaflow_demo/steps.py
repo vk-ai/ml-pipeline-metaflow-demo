@@ -17,6 +17,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from ml_pipeline_metaflow_demo.dataset import load_tiny_split
+from ml_pipeline_metaflow_demo.tags import seed_candidate_tag
 
 # Metric name → callable(y_true, y_pred) -> float
 _METRIC_FNS = {
@@ -337,4 +338,7 @@ def register_step(ctx: dict[str, Any]) -> dict[str, Any]:
     ctx["registry_path"] = str(registry_path)
     ctx["gates_path"] = str(gates_path)
     ctx["model_card"] = card
+    # Mutable tag store: seed candidate (immutable run folder unchanged)
+    tag_info = seed_candidate_tag(out_dir, run_id)
+    ctx["tags"] = tag_info.get("tags", ["candidate"])
     return ctx
