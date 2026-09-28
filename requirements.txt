@@ -1,6 +1,11 @@
-# Runtime
+# Runtime (also declared in pyproject.toml)
 scikit-learn>=1.3
 joblib>=1.3
 
 # Dev / CI
 pytest>=8.0
+
+# Optional (not installed by default CI):
+#   pip install -e '.[metaflow]'
+#   pip install -e '.[airflow]'   # heavy — for importing generated stub only
+#   pip install -e '.[orchestrators]'

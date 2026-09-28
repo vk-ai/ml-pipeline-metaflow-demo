@@ -18,6 +18,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# Optional orchestrators — never required by CI / default pytest.
+metaflow = ["metaflow>=2.12"]
+# Airflow is heavy; declare for learners who want to import the generated stub.
+# Prefer: pip install '.[airflow]' locally — do NOT install in default CI.
+airflow = ["apache-airflow>=2.8"]
+orchestrators = ["metaflow>=2.12", "apache-airflow>=2.8"]
 
 [project.urls]
 Homepage = "https://github.com/vk-ai/ml-pipeline-metaflow-demo"

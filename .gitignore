@@ -8,3 +8,4 @@ build/
 artifacts/
 .DS_Store
 *.joblib
+.metaflow/
