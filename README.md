@@ -40,6 +40,8 @@ This repo is that slice.
 | `examples/gates.yaml` | Pluggable multi-metric quality gates (`accuracy` / `f1` / …) |
 | `src/ml_pipeline_metaflow_demo/tags.py` | Mutable promotion tags (`candidate` / `staging` / `production` / `gate:passed`) on immutable runs |
 | `src/ml_pipeline_metaflow_demo/promote.py` | `promote(...)` — only when `gates.json` passed; toy `--authorize` token for production |
+| `src/ml_pipeline_metaflow_demo/champion.py` | Champion/challenger relative gate on a frozen eval split → `champion_compare.json` (round 4) |
+| `examples/champion_challenger.py` | Promote → blocked challenger → better challenger → `rollback()` walkthrough |
 | `src/ml_pipeline_metaflow_demo/airflow_stub.py` | Optional Airflow DAG stub export (import-guarded; Airflow **not** required) |
 | `tests/` | Happy path + fail-on-bad-metrics + DAG unit tests + promotion tags + backend selection |
 | `.github/workflows/ci.yml` | GitHub Actions CI (`pip install -e ".[dev]"` + pytest; never installs metaflow/airflow) |
@@ -127,6 +129,33 @@ export_airflow_stub("artifacts/airflow_dag_stub.py")       # illustrative only
 - **Sources:** [Metaflow tagging](https://docs.metaflow.org/scaling/tagging), [Metaflow + Airflow](https://docs.metaflow.org/production/scheduling-metaflow-flows/scheduling-with-airflow), [coordinating projects](https://docs.metaflow.org/production/coordinating-larger-metaflow-projects).
 - Airflow stub is **optional and illustrative** — the happy path never imports Airflow.
 
+## Champion vs challenger gate + rollback (round 4)
+
+Absolute gates answer *"is this run good enough?"*. Before a run replaces what is live, `promote(..., to="production")` now also asks *"does it beat the current `production` run?"*:
+
+1. The **champion** is the run currently tagged `production` (top of `production_stack` in `tags.json`).
+2. The challenger's and champion's `runs/<id>/model.joblib` are both **re-scored on the same frozen eval split** (`frozen_eval_split()`, Iris `random_state=42`, 45 rows, sha256 fingerprint recorded). Stored metrics are not trusted.
+3. Per metric: `challenger >= champion + max(min_absolute_change, min_relative_change * |champion|)`. The default is accuracy + f1 with delta `0.0` (no regression). Set a delta > 0 to require a real improvement.
+4. The result goes to `runs/<challenger>/champion_compare.json` (`status`: `passed` / `blocked` / `no_champion` / `self`). A block raises `ChampionGateFailed` and names each failing metric. No tags move.
+5. On success, `production` **moves** to the challenger (`exclusive_production=True`). The previous champion is kept in `production_stack`, so `rollback()` can restore it.
+
+```python
+from ml_pipeline_metaflow_demo import promote, rollback, run_pipeline, ChampionGateFailed
+
+run_pipeline(artifact_dir="artifacts", run_id="v1", C=0.01)       # weaker model (acc≈0.978)
+promote("artifacts", "v1", to="production")                      # no champion → absolute gates only
+token = open("artifacts/.promote_token").read().strip()
+
+run_pipeline(artifact_dir="artifacts", run_id="v2", C=1.0)        # acc 1.0 on the frozen split
+promote("artifacts", "v2", to="production", authorize=token,
+        champion_gate={"accuracy": 0.01})                         # or champion_gate="examples/gates.yaml"
+rollback("artifacts", authorize=token, reason="toy incident")    # production → v1, v2 tagged rolled_back
+```
+
+Try it: `python examples/champion_challenger.py` (uses a temp dir). `examples/gates.yaml` has a `champion:` section (`accuracy: 0.01`, `f1: 0.0`). `compare_champion=False` skips the check, and the override is recorded in the tag history.
+
+**Caveats (read these):** there is **no statistical significance test**. On 45 eval rows one flipped prediction moves accuracy by about 0.022, so deltas below `1/n` are flagged as noise-sensitive in `warnings`. Runs trained with a different `random_state` may have seen frozen-eval rows during training, and that is flagged as well. Rollback does not re-run gates: it restores a run that already passed them. This is a teaching stand-in for MLflow [`validate_evaluation_results` / `MetricThreshold(min_absolute_change=…)`](https://mlflow.org/docs/latest/ml/evaluation/) plus registry aliases. It is **not** MLflow and not shadow/canary deployment. Related OSS demos: [model-promotion-gate](https://github.com/tkgo1599-max/model-promotion-gate) and [modelgate](https://github.com/AyushPatel94/modelgate).
+
 ## Design notes
 
 - **Thin custom DAG by default (`[metaflow-style]`).** Airflow needs a scheduler/DB; Metaflow is great but heavier for a learning repo CI matrix. The runner here is ~100 lines with the same mental model (named steps + edges + shared context). Real Metaflow is an **optional** extra behind `ML_PIPELINE_USE_METAFLOW`.
@@ -147,6 +176,7 @@ pytest -q
 - **Fail on bad metrics** — forced inverted predictions (or impossible threshold) raise `ValidationError`/`GateFailed` and leave no registry files.
 - **DAG unit tests** — topo order, cycle detection, graph text.
 - **Promotion tags** — candidate seed, staging→production, authorize token, refuse on failed gates, Airflow stub writes without Airflow installed.
+- **Champion/challenger + rollback** — first production has no champion; a better challenger promotes and moves the tag; a too-large delta, an equal model with delta > 0, and a worse model are all blocked with the failing metric named; relative-change rule; rollback restores the previous run (authorize required); `champion:` YAML section.
 - **Backend selection** — default style; flag false; flag true + missing metaflow → fallback; selection when importable stubbed True (no metaflow/airflow install in CI).
 
 ## License

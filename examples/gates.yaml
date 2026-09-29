@@ -4,3 +4,10 @@
 gates:
   accuracy: 0.90
   f1: 0.85
+# Round 4: champion/challenger relative gate (min_absolute_change per metric).
+# A challenger is promoted to production only if, on the same frozen eval split,
+# challenger >= current production + delta. 0.0 = "no regression".
+# Pass via: promote(..., to="production", champion_gate="examples/gates.yaml")
+champion:
+  accuracy: 0.01
+  f1: 0.0

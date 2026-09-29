@@ -26,3 +26,5 @@ jobs:
         run: pytest -q
       - name: Quickstart example
         run: python examples/quickstart.py
+      - name: Champion/challenger example
+        run: python examples/champion_challenger.py

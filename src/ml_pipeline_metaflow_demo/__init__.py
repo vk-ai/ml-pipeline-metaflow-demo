@@ -15,8 +15,14 @@ from ml_pipeline_metaflow_demo.backend import (
     pipeline_mode,
     wants_real_metaflow,
 )
+from ml_pipeline_metaflow_demo.champion import (
+    compare_to_champion,
+    current_champion,
+    frozen_eval_split,
+    production_stack,
+)
 from ml_pipeline_metaflow_demo.pipeline import build_pipeline, run_pipeline
-from ml_pipeline_metaflow_demo.promote import promote
+from ml_pipeline_metaflow_demo.promote import ChampionGateFailed, promote, rollback
 from ml_pipeline_metaflow_demo.tags import add_tag, list_tags, remove_tag, runs_with_tag
 
 __all__ = [
@@ -32,6 +38,12 @@ __all__ = [
     "list_tags",
     "runs_with_tag",
     "promote",
+    "rollback",
+    "ChampionGateFailed",
+    "compare_to_champion",
+    "current_champion",
+    "frozen_eval_split",
+    "production_stack",
     "export_airflow_stub",
     "airflow_available",
     "__version__",
