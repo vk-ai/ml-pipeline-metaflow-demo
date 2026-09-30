@@ -183,6 +183,9 @@ def evaluate_gates(
 def train_step(ctx: dict[str, Any]) -> dict[str, Any]:
     """Fit a tiny sklearn classifier and stash it on the context."""
     random_state = int(ctx.get("random_state", 42))
+    # Optional inverse-regularization knob (LogisticRegression ``C``; default 1.0 =
+    # sklearn default). Lets learners/tests produce weaker vs stronger challengers.
+    C = float(ctx.get("C", 1.0))
     X_train, X_test, y_train, y_test = load_tiny_split(random_state=random_state)
 
     model = Pipeline(
@@ -190,7 +193,7 @@ def train_step(ctx: dict[str, Any]) -> dict[str, Any]:
             ("scaler", StandardScaler()),
             (
                 "clf",
-                LogisticRegression(max_iter=200, random_state=random_state),
+                LogisticRegression(C=C, max_iter=200, random_state=random_state),
             ),
         ]
     )
@@ -203,6 +206,7 @@ def train_step(ctx: dict[str, Any]) -> dict[str, Any]:
     ctx["test_samples"] = int(len(X_test))
     ctx["dataset_hash"] = _dataset_hash_stub(X_train, y_train, random_state)
     ctx["random_state"] = random_state
+    ctx["C"] = C
     return ctx
 
 
@@ -257,6 +261,7 @@ def _jsonable_context(ctx: dict[str, Any], *, run_id: str, registered_at: str) -
         ),
         "dataset_hash": ctx.get("dataset_hash"),
         "random_state": ctx.get("random_state"),
+        "C": ctx.get("C"),
         "train_samples": ctx.get("train_samples"),
         "test_samples": ctx.get("test_samples"),
         "timestamp": registered_at,
