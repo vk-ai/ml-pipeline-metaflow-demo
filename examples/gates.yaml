@@ -11,3 +11,13 @@ gates:
 champion:
   accuracy: 0.01
   f1: 0.0
+# Round 5: paired significance on the champion compare (McNemar exact + paired
+# bootstrap CI on accuracy). Always reported in champion_compare.json; set
+# require: true to block "underpowered" challengers. On 45 rows the smallest
+# significant gain is 6 rows (+0.133 accuracy), so +0.022 is never significant.
+significance:
+  alpha: 0.05
+  require: false
+  rule: both
+  n_boot: 2000
+  seed: 0

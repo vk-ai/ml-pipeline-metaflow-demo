@@ -154,7 +154,44 @@ rollback("artifacts", authorize=token, reason="toy incident")    # production �
 
 Try it: `python examples/champion_challenger.py` (uses a temp dir). `examples/gates.yaml` has a `champion:` section (`accuracy: 0.01`, `f1: 0.0`). `compare_champion=False` skips the check, and the override is recorded in the tag history.
 
-**Caveats (read these):** there is **no statistical significance test**. On 45 eval rows one flipped prediction moves accuracy by about 0.022, so deltas below `1/n` are flagged as noise-sensitive in `warnings`. Runs trained with a different `random_state` may have seen frozen-eval rows during training, and that is flagged as well. Rollback does not re-run gates: it restores a run that already passed them. This is a teaching stand-in for MLflow [`validate_evaluation_results` / `MetricThreshold(min_absolute_change=…)`](https://mlflow.org/docs/latest/ml/evaluation/) plus registry aliases. It is **not** MLflow and not shadow/canary deployment. Related OSS demos: [model-promotion-gate](https://github.com/tkgo1599-max/model-promotion-gate) and [modelgate](https://github.com/AyushPatel94/modelgate).
+**Caveats (read these):** a margin alone is not a significance test. On 45 eval rows one flipped prediction moves accuracy by about 0.022, so deltas below `1/n` are flagged as noise-sensitive in `warnings`. Round 5 adds a paired significance check (next section). Runs trained with a different `random_state` may have seen frozen-eval rows during training, and that is flagged as well. Rollback does not re-run gates: it restores a run that already passed them. This is a teaching stand-in for MLflow [`validate_evaluation_results` / `MetricThreshold(min_absolute_change=…)`](https://mlflow.org/docs/latest/ml/evaluation/) plus registry aliases. It is **not** MLflow and not shadow/canary deployment. Related OSS demos: [model-promotion-gate](https://github.com/tkgo1599-max/model-promotion-gate) and [modelgate](https://github.com/AyushPatel94/modelgate).
+
+## Paired significance on the champion gate (round 5)
+
+The round-4 gate promoted `v2` over `v1` for "+0.022 accuracy". That is **one row out of 45**.
+Champion and challenger are scored on the *same* frozen rows, so each compare now also runs a
+**paired** test on per-row correctness (stdlib `math.comb` + numpy only, in `significance.py`):
+
+- `b` = rows only the challenger gets right, `c` = rows only the champion gets right.
+  Delta = `(b − c) / n`. Rows where both models agree carry no information.
+- **McNemar exact**: `p = min(1, 2·P[Binom(b+c, ½) ≤ min(b, c)])`.
+- **Paired bootstrap CI** on the accuracy delta (seeded, 2000 resamples, percentile).
+- **`min_significant_delta`**: the smallest gain that *could* reach `p < α` on `n` rows (the
+  challenger fixes `k` rows and breaks none). On 45 rows at α = 0.05 that is **6 rows = +0.133**.
+
+The verdict (`significant_improvement` / `underpowered` / `significant_regression`) and all numbers
+go into `champion_compare.json` → `significance`, and a warning is added when the result isn't
+significant. It is **report-only by default**, so round-4 behaviour is unchanged. To make it a gate:
+
+```python
+promote("artifacts", "v2", to="production", authorize=token,
+        champion_gate={"accuracy": 0.01}, significance={"require": True})
+# ChampionGateFailed: ... accuracy delta +0.0222 not significant
+#   (McNemar p=1, CI [+0.000, +0.067], verdict=underpowered)   → status "underpowered"
+```
+
+…or set `require: true` in the `significance:` section of `examples/gates.yaml`. A real improvement
+(majority-class champion at 30/45 vs a 45/45 challenger: `b = 15`, `c = 0`, `p ≈ 6e-5`) passes.
+The default rule needs **both** McNemar and the bootstrap CI (`rule: both | either | mcnemar |
+bootstrap`), because at tiny counts they disagree: with 4 fixes and 0 breaks the bootstrap CI
+excludes 0 but McNemar gives p = 0.125. A test pins that case.
+
+Scope: accuracy only, since it decomposes per row. F1 is still margin-gated only. This is a
+teaching implementation. For fuller tooling see [paired-evalkit](https://pypi.org/project/paired-evalkit/) /
+[evalkit](https://github.com/bonnie-mcconnell/evalkit). Motivation:
+[mlflow#26193 "Paired statistical comparison of evaluation runs"](https://github.com/mlflow/mlflow/issues/26193)
+(2026-09), [arXiv 2511.19794 (paired bootstrap for small improvements)](https://arxiv.org/pdf/2511.19794v1.pdf),
+[The Neural Base: statistical significance for deployment decisions](https://theneuralbase.com/fine-tuning-fundamentals/learn/advanced/statistical-significance-for-deployment-decisions/).
 
 ## Design notes
 

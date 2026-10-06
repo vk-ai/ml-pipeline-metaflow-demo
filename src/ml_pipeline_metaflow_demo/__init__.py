@@ -15,6 +15,7 @@ from ml_pipeline_metaflow_demo.backend import (
     pipeline_mode,
     wants_real_metaflow,
 )
+from ml_pipeline_metaflow_demo.significance import mcnemar_exact, paired_significance
 from ml_pipeline_metaflow_demo.champion import (
     compare_to_champion,
     current_champion,
@@ -41,6 +42,8 @@ __all__ = [
     "rollback",
     "ChampionGateFailed",
     "compare_to_champion",
+    "mcnemar_exact",
+    "paired_significance",
     "current_champion",
     "frozen_eval_split",
     "production_stack",
