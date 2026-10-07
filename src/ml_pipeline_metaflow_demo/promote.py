@@ -79,6 +79,7 @@ def promote(
     compare_champion: bool = True,
     eval_random_state: int = DEFAULT_EVAL_RANDOM_STATE,
     exclusive_production: bool = True,
+    significance: Any = None,
 ) -> dict[str, Any]:
     """
     Promote ``run_id`` to ``to`` (default ``production``) iff gates passed.
@@ -96,6 +97,10 @@ def promote(
       :class:`ChampionGateFailed` is raised naming the failing metric(s). The
       comparison is written to ``runs/<run_id>/champion_compare.json``.
       ``compare_champion=False`` skips it (explicit override, recorded in history).
+    - **Paired significance (round 5):** the compare also records McNemar +
+      paired-bootstrap results. ``significance={"require": True}`` (or a gates
+      file with ``significance: require: true``) blocks an ``underpowered``
+      challenger with :class:`ChampionGateFailed`.
     - With ``exclusive_production`` (default) the previous champion loses the
       ``production`` tag and is pushed onto ``production_stack`` for
       :func:`rollback`.
@@ -143,6 +148,7 @@ def promote(
                     champion_id=previous_champion,
                     gate=champion_gate,
                     eval_random_state=eval_random_state,
+                    significance=significance,
                 )
             except FileNotFoundError as exc:
                 raise PromotionError(f"champion compare impossible: {exc}") from exc
@@ -217,7 +223,8 @@ def promote(
         out["previous_champion"] = previous_champion
         if compare_doc is not None:
             out["champion_compare"] = {
-                k: compare_doc.get(k) for k in ("status", "passed", "champion", "results", "path")
+                k: compare_doc.get(k)
+                for k in ("status", "passed", "champion", "results", "significance", "path")
             }
         out["authorize_token_path"] = str(auth_token_path(artifact_dir))
         if authorize:

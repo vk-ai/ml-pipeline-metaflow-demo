@@ -16,14 +16,20 @@ real improvement (a margin / delta). The comparison is written to
 
 Teaching stand-in for MLflow ``validate_evaluation_results(...)`` with
 ``MetricThreshold(min_absolute_change=..., min_relative_change=...)`` against a
-baseline model + registry aliases — **not** MLflow. No statistical significance
-test: on a 45-row eval split one sample flips accuracy by ~0.022, so small
-deltas are noise-sensitive (see README caveat).
+baseline model + registry aliases — **not** MLflow.
+
+**Paired significance (round 5):** on a 45-row split one row moves accuracy by
+~0.022, so a margin alone cannot tell signal from noise. Every compare also
+runs McNemar's exact test + a paired bootstrap CI on per-row correctness
+(``significance.py``) and records the verdict. With
+``significance={"require": True}`` an ``underpowered`` result blocks
+promotion (status ``underpowered``).
 
 Sources:
 - https://mlflow.org/docs/latest/ml/evaluation/
 - https://github.com/tkgo1599-max/model-promotion-gate
 - https://github.com/AyushPatel94/modelgate
+- https://github.com/mlflow/mlflow/issues/26193 (paired comparison FR)
 """
 
 from __future__ import annotations
@@ -38,6 +44,7 @@ import joblib
 import numpy as np
 
 from ml_pipeline_metaflow_demo.dataset import load_tiny_split
+from ml_pipeline_metaflow_demo.significance import paired_significance, resolve_significance
 from ml_pipeline_metaflow_demo.tags import latest_with_tag, list_tags, load_tags
 
 DEFAULT_CHAMPION_METRICS = ("accuracy", "f1")
@@ -174,6 +181,11 @@ def score_run(
     return {m: _METRIC_FNS[m](y, y_pred) for m in metrics}
 
 
+def predict_run(artifact_dir: str | Path, run_id: str, X: np.ndarray) -> np.ndarray:
+    """Per-row predictions of a registered run (for paired significance)."""
+    return np.asarray(_load_run_model(artifact_dir, run_id).predict(X))
+
+
 def compare_to_champion(
     artifact_dir: str | Path,
     challenger_id: str,
@@ -182,14 +194,25 @@ def compare_to_champion(
     gate: Any = None,
     eval_random_state: int = DEFAULT_EVAL_RANDOM_STATE,
     write: bool = True,
+    significance: Any = None,
 ) -> dict[str, Any]:
     """Compare ``challenger_id`` against the current champion on the frozen split.
 
-    Returns a doc with ``status`` in ``{"passed", "blocked", "no_champion", "self"}``
-    and ``passed`` (True for everything except ``blocked``). ``no_champion`` means
-    there is no production run yet → only the absolute gates apply.
+    Returns a doc with ``status`` in
+    ``{"passed", "blocked", "underpowered", "no_champion", "self"}`` and
+    ``passed`` (False only for ``blocked`` / ``underpowered``). ``no_champion``
+    means there is no production run yet → only the absolute gates apply.
+
+    ``significance`` (see :func:`significance.resolve_significance`) controls the
+    paired McNemar + bootstrap check. It is always computed and recorded under
+    ``doc["significance"]``. It only gates when ``require`` is true. When
+    ``significance`` is None and ``gate`` is a YAML/JSON path, that file's
+    ``significance:`` section is used if present.
     """
     rules = resolve_champion_gate(gate)
+    if significance is None and isinstance(gate, (str, Path)):
+        significance = gate
+    sig_cfg = resolve_significance(significance)
     champion = champion_id if champion_id is not None else current_champion(artifact_dir)
     X, y, fingerprint = frozen_eval_split(eval_random_state)
     metrics = list(rules)
@@ -210,7 +233,8 @@ def compare_to_champion(
         "compared_at": datetime.now(timezone.utc).isoformat(),
         "notes": (
             "OSS learning stub — champion/challenger relative gate (MLflow "
-            "validate_evaluation_results-style); not MLflow, no significance test."
+            "validate_evaluation_results-style) + paired McNemar/bootstrap "
+            "significance on accuracy; not MLflow."
         ),
     }
 
@@ -240,8 +264,31 @@ def compare_to_champion(
                     "passed": ok,
                 }
             )
-        doc["passed"] = all_ok
-        doc["status"] = "passed" if all_ok else "blocked"
+        sig = paired_significance(
+            y,
+            predict_run(artifact_dir, challenger_id, X),
+            predict_run(artifact_dir, champion, X),
+            sig_cfg,
+        )
+        doc["significance"] = sig
+        sig_ok = sig["significant"] or not sig_cfg["require"]
+        doc["passed"] = all_ok and sig_ok
+        if not all_ok:
+            doc["status"] = "blocked"
+        elif not sig_ok:
+            doc["status"] = "underpowered"
+        else:
+            doc["status"] = "passed"
+        if not sig["significant"]:
+            mde = sig["min_significant_delta"]
+            doc["warnings"].append(
+                f"accuracy delta {sig['delta']:+.4f} is {sig['verdict']} "
+                f"(McNemar p={sig['mcnemar_p']:.3g}, "
+                f"{1 - sig['alpha']:.0%} CI [{sig['bootstrap_ci'][0]:+.3f}, "
+                f"{sig['bootstrap_ci'][1]:+.3f}]); on n={len(y)} rows the smallest "
+                f"significant gain is "
+                + (f"{mde:+.3f}" if mde is not None else "unreachable")
+            )
         # Leakage / comparability hints: runs trained on a different split seed may
         # have seen frozen-eval rows during training.
         for rid in (challenger_id, champion):
@@ -274,4 +321,11 @@ def format_failures(doc: dict[str, Any]) -> str:
         for r in doc.get("results", [])
         if not r["passed"]
     ]
+    sig = doc.get("significance") or {}
+    if sig.get("required") and not sig.get("significant"):
+        parts.append(
+            f"accuracy delta {sig['delta']:+.4f} not significant "
+            f"(McNemar p={sig['mcnemar_p']:.3g}, CI [{sig['bootstrap_ci'][0]:+.3f}, "
+            f"{sig['bootstrap_ci'][1]:+.3f}], verdict={sig['verdict']})"
+        )
     return "; ".join(parts)
